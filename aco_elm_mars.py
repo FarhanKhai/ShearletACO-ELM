@@ -220,4 +220,4 @@ if __name__ == "__main__":
     print("="*65)
     for r in results:
         print(f"{r['Feature']:<10} | {r['Split']:<10} | {r['ACO']:<5} | {r['Accuracy']:.4%}")
-    print("="*65)
+    print("="*65) 
