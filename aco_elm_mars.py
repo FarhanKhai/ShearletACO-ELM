@@ -3,11 +3,9 @@ import os
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
-# ==========================
+
 # 1. DATA LOADING ENGINE
-# ==========================
 def load_data_fixed(feature_type):
-    """Load sesuai file text asli (Train, Val, Test terpisah)"""
     f_train = f"{feature_type}_train.npz"
     f_val   = f"{feature_type}_val.npz"
     f_test  = f"{feature_type}_test.npz"
@@ -21,16 +19,13 @@ def load_data_fixed(feature_type):
     return (train["X"], train["y"]), (val["X"], val["y"]), (test["X"], test["y"])
 
 def load_data_random(feature_type):
-    """
-    Load SEMUA data, gabung jadi satu, lalu di-split ulang secara acak (Random Split).
-    Rasio: 60% Train, 20% Val, 20% Test.
-    """
+    
     data_fixed = load_data_fixed(feature_type)
     if data_fixed is None: return None
     
     (tr_X, tr_y), (val_X, val_y), (te_X, te_y) = data_fixed
     
-    # Gabung jadi satu gunung data besar
+    # Gabung jadi data besar
     X_all = np.vstack([tr_X, val_X, te_X])
     y_all = np.concatenate([tr_y, val_y, te_y])
     
@@ -52,9 +47,8 @@ def standardize(X_train, X_val, X_test):
     std[std == 0] = 1.0
     return (X_train-mean)/std, (X_val-mean)/std, (X_test-mean)/std
 
-# ==========================
+
 # 2. ELM CORE
-# ==========================
 def elm_train(X, y, n_hidden=2000, lam=1e-3, random_state=42):
     """
     ELM dengan n_hidden besar (2000) untuk menangkap pola kompleks.
@@ -83,15 +77,10 @@ def elm_predict(model, X):
     scores = H @ model["beta"]
     return model["classes"][np.argmax(scores, axis=1)]
 
-# ==========================
+
 # 3. ACO FEATURE SELECTION
-# ==========================
+
 def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
-    """
-    ACO dengan parameter stabil:
-    - n_ants=10: Cukup banyak semut untuk eksplorasi beragam kombinasi.
-    - n_iter=20: Cukup waktu untuk konvergensi (menemukan fitur terbaik).
-    """
     n_feat = X_tr.shape[1]
     tau = np.ones(n_feat)
     best_mask = np.ones(n_feat, dtype=bool)
@@ -105,23 +94,23 @@ def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
         tau_max = tau.max() + 1e-9
         
         for ant in range(n_ants):
-            # Probabilitas pilih fitur (Roulette Wheel Selection basis Pheromone)
+            
             probs = np.clip(tau/tau_max, 0.1, 0.9)
             mask = rng.random(n_feat) < probs
             
-            # Batasi jumlah fitur (Pruning)
+            # (Pruning)
             if max_feat and mask.sum() > max_feat:
-                # Buang fitur secara acak dari yang terpilih jika kelebihan
+                
                 on_indices = np.where(mask)[0]
                 off = rng.choice(on_indices, mask.sum()-max_feat, replace=False)
                 mask[off] = False
             
-            # Pastikan minimal ada 5 fitur biar bisa training
+            
             if mask.sum() < 5: 
                 add = rng.choice(np.where(~mask)[0], 5 - mask.sum(), replace=False)
                 mask[add] = True
                 
-            # Evaluasi (Pakai ELM dengan hidden layer lebih kecil biar cepat saat ACO)
+
             model = elm_train(X_tr[:, mask], y_tr, n_hidden=800) 
             acc = accuracy_score(y_v, elm_predict(model, X_v[:, mask]))
             
@@ -133,22 +122,22 @@ def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
                 best_mask = mask.copy()
         
         # Update Pheromone
-        tau *= 0.85 # Evaporasi (0.85 artinya 15% pheromone hilang tiap iterasi)
+        tau *= 0.85 
         
-        # Deposit Pheromone (Semut terbaik memberi jejak lebih tebal)
+        
         order = np.argsort(ant_scores)[::-1]
         for rank, idx in enumerate(order):
             if ant_scores[idx] <= 0: continue
-            # Rumus deposit: Nilai Akurasi dibagi Peringkat
+            
             tau[ant_masks[idx]] += ant_scores[idx] / (rank + 1.0)
             
         print(f"    Iter {it+1}/{n_iter}: Best Val Acc={best_score:.4f}, Feats Selected={best_mask.sum()}")
         
     return best_mask
 
-# ==========================
+
 # 4. PIPELINE PENUH
-# ==========================
+
 def run_full_experiment(feature_type, split_mode, use_aco):
     mode_str = f"{feature_type.upper()} | {split_mode} SPLIT | ACO={use_aco}"
     print(f"\n[{mode_str}] Running...")
@@ -170,12 +159,11 @@ def run_full_experiment(feature_type, split_mode, use_aco):
     mask = np.ones(X_tr.shape[1], dtype=bool)
     if use_aco:
         print(f"  Running ACO selection...")
-        # Setting ACO: Max 160 fitur, 10 semut, 20 iterasi
+
         mask = aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20)
         print(f"  [ACO Final] Features selected: {mask.sum()} / {X_tr.shape[1]}")
         
     # 3. Final Training & Testing
-    # Gabung Train + Val agar model akhir punya lebih banyak data belajar
     X_final = np.vstack([X_tr[:, mask], X_v[:, mask]])
     y_final = np.concatenate([y_tr, y_v])
     
@@ -186,7 +174,6 @@ def run_full_experiment(feature_type, split_mode, use_aco):
     
     print(f"  >>> Accuracy: {acc:.4f}")
     
-    # Tampilkan report detail hanya untuk skenario tertentu agar log tidak terlalu panjang
     # (Random Split + ACO) dan (Fixed Split + ACO)
     if use_aco:
          print("\nDetailed Classification Report:")
@@ -194,9 +181,9 @@ def run_full_experiment(feature_type, split_mode, use_aco):
     
     return acc
 
-# ==========================
+
 # MAIN EXECUTION
-# ==========================
+
 if __name__ == "__main__":
     results = []
     
