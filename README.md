@@ -1,0 +1,1 @@
+This repository uses the already estabilished shearlet approach, specifically one of the discrete shearlet transform FFST Shearlab https://github.com/grlee77/PyShearlets, published by Gregory R. Lee. 
