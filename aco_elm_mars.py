@@ -50,9 +50,6 @@ def standardize(X_train, X_val, X_test):
 
 # 2. ELM CORE
 def elm_train(X, y, n_hidden=2000, lam=1e-3, random_state=42):
-    """
-    ELM dengan n_hidden besar (2000) untuk menangkap pola kompleks.
-    """
     n_samples, n_features = X.shape
     classes, y_idx = np.unique(y, return_inverse=True)
     n_classes = len(classes)
@@ -79,7 +76,6 @@ def elm_predict(model, X):
 
 
 # 3. ACO FEATURE SELECTION
-
 def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
     n_feat = X_tr.shape[1]
     tau = np.ones(n_feat)
@@ -137,7 +133,6 @@ def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
 
 
 # 4. PIPELINE PENUH
-
 def run_full_experiment(feature_type, split_mode, use_aco):
     mode_str = f"{feature_type.upper()} | {split_mode} SPLIT | ACO={use_aco}"
     print(f"\n[{mode_str}] Running...")
@@ -183,14 +178,12 @@ def run_full_experiment(feature_type, split_mode, use_aco):
 
 
 # MAIN EXECUTION
-
 if __name__ == "__main__":
     results = []
     
     # Urutan Eksekusi:
-    # 1. Shearlet (Jagoan Utama)
-    # 2. Wavelet (Pembanding)
-    
+    # 1. Shearlet 
+    # 2. Wavelet 
     for feat in ["shearlet", "wavelet"]:
         for split in ["FIXED", "RANDOM"]:
             for aco in [False, True]:
