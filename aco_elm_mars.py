@@ -3,8 +3,9 @@ import os
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
-
+# ==========================================
 # 1. DATA LOADING ENGINE
+# ==========================================
 def load_data_fixed(feature_type):
     f_train = f"{feature_type}_train.npz"
     f_val   = f"{feature_type}_val.npz"
@@ -19,7 +20,6 @@ def load_data_fixed(feature_type):
     return (train["X"], train["y"]), (val["X"], val["y"]), (test["X"], test["y"])
 
 def load_data_random(feature_type):
-    
     data_fixed = load_data_fixed(feature_type)
     if data_fixed is None: return None
     
@@ -48,7 +48,6 @@ def standardize(X_train, X_val, X_test):
     return (X_train-mean)/std, (X_val-mean)/std, (X_test-mean)/std
 
 
-# 2. ELM CORE
 def elm_train(X, y, n_hidden=2000, lam=1e-3, random_state=42):
     n_samples, n_features = X.shape
     classes, y_idx = np.unique(y, return_inverse=True)
@@ -75,37 +74,53 @@ def elm_predict(model, X):
     return model["classes"][np.argmax(scores, axis=1)]
 
 
-# 3. ACO FEATURE SELECTION
-def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
+def aco_select(X_tr, y_tr, X_v, y_v, max_feat, n_ants, n_iter):
+    """
+    Versi Smart ACO (Sigmoid + Smart Pruning)
+    Sesuai dengan hasil Grid Search terbaik (Val 0.5909).
+    """
     n_feat = X_tr.shape[1]
+    
     tau = np.ones(n_feat)
+    K_factor = 1.0 
+    
     best_mask = np.ones(n_feat, dtype=bool)
     best_score = 0.0
     rng = np.random.default_rng(42)
     
-    print(f"  [ACO Info] Start Selection. Max Feat Allowed: {max_feat}")
+    print(f"  [ACO Info] Start Selection. Params: Ants={n_ants}, Iter={n_iter}, Limit={max_feat}")
     
     for it in range(n_iter):
         ant_masks, ant_scores = [], []
-        tau_max = tau.max() + 1e-9
+        
+        probs = tau / (tau + K_factor)
+        probs = np.clip(probs, 0.05, 0.95)
         
         for ant in range(n_ants):
-            
-            probs = np.clip(tau/tau_max, 0.1, 0.9)
             mask = rng.random(n_feat) < probs
             
-            # (Pruning)
-            if max_feat and mask.sum() > max_feat:
+            current_k = mask.sum()
+            if max_feat and current_k > max_feat:
+                on_idx = np.where(mask)[0]
+                on_tau = tau[on_idx]
                 
-                on_indices = np.where(mask)[0]
-                off = rng.choice(on_indices, mask.sum()-max_feat, replace=False)
-                mask[off] = False
-            
+                sort_metric = on_tau + rng.uniform(0, 0.01, size=len(on_tau))
+                sorted_idx = np.argsort(sort_metric)
+                
+                n_remove = current_k - max_feat
+                remove_local_idx = sorted_idx[:n_remove]
+                remove_global_idx = on_idx[remove_local_idx]
+                mask[remove_global_idx] = False
             
             if mask.sum() < 5: 
-                add = rng.choice(np.where(~mask)[0], 5 - mask.sum(), replace=False)
-                mask[add] = True
-                
+                off_idx = np.where(~mask)[0]
+                if len(off_idx) > 0:
+                    off_tau = tau[off_idx]
+                    prob_revive = off_tau / (off_tau.sum() + 1e-9)
+                    add_idx = rng.choice(off_idx, size=min(5, len(off_idx)), p=prob_revive, replace=False)
+                    mask[add_idx] = True
+            
+            if mask.sum() == 0: continue
 
             model = elm_train(X_tr[:, mask], y_tr, n_hidden=800) 
             acc = accuracy_score(y_v, elm_predict(model, X_v[:, mask]))
@@ -117,23 +132,22 @@ def aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20):
                 best_score = acc
                 best_mask = mask.copy()
         
-        # Update Pheromone
         tau *= 0.85 
         
-        
         order = np.argsort(ant_scores)[::-1]
-        for rank, idx in enumerate(order):
+        n_elite = max(1, n_ants // 2) 
+        
+        for i in range(n_elite):
+            idx = order[i]
             if ant_scores[idx] <= 0: continue
-            
-            tau[ant_masks[idx]] += ant_scores[idx] / (rank + 1.0)
+            tau[ant_masks[idx]] += ant_scores[idx] 
             
         print(f"    Iter {it+1}/{n_iter}: Best Val Acc={best_score:.4f}, Feats Selected={best_mask.sum()}")
         
     return best_mask
 
 
-# 4. PIPELINE PENUH
-def run_full_experiment(feature_type, split_mode, use_aco):
+def run_full_experiment(feature_type, split_mode, use_aco, aco_params=None):
     mode_str = f"{feature_type.upper()} | {split_mode} SPLIT | ACO={use_aco}"
     print(f"\n[{mode_str}] Running...")
     
@@ -152,10 +166,14 @@ def run_full_experiment(feature_type, split_mode, use_aco):
     
     # 2. ACO Feature Selection
     mask = np.ones(X_tr.shape[1], dtype=bool)
+    
     if use_aco:
         print(f"  Running ACO selection...")
+        ants = aco_params.get('ants', 30)
+        iters = aco_params.get('iter', 10)
+        m_feat = aco_params.get('max_feat', 85)
 
-        mask = aco_select(X_tr, y_tr, X_v, y_v, max_feat=160, n_ants=10, n_iter=20)
+        mask = aco_select(X_tr, y_tr, X_v, y_v, max_feat=m_feat, n_ants=ants, n_iter=iters)
         print(f"  [ACO Final] Features selected: {mask.sum()} / {X_tr.shape[1]}")
         
     # 3. Final Training & Testing
@@ -169,25 +187,27 @@ def run_full_experiment(feature_type, split_mode, use_aco):
     
     print(f"  >>> Accuracy: {acc:.4f}")
     
-    # (Random Split + ACO) dan (Fixed Split + ACO)
-    if use_aco:
-         print("\nDetailed Classification Report:")
-         print(classification_report(y_te, y_pred, zero_division=0))
+    print("\nDetailed Classification Report:")
+    print(classification_report(y_te, y_pred, zero_division=0))
     
     return acc
 
 
-# MAIN EXECUTION
 if __name__ == "__main__":
     results = []
     
-    # Urutan Eksekusi:
-    # 1. Shearlet 
-    # 2. Wavelet 
+    # Val: 0.5909 | Feats: 85
+    best_params = {
+        'ants': 30,       
+        'iter': 10,       
+        'max_feat': 85   
+    }
+    
     for feat in ["shearlet", "wavelet"]:
         for split in ["FIXED", "RANDOM"]:
             for aco in [False, True]:
-                acc = run_full_experiment(feat, split, aco)
+                
+                acc = run_full_experiment(feat, split, aco, aco_params=best_params)
                 results.append({
                     "Feature": feat.upper(),
                     "Split": split,
@@ -200,4 +220,4 @@ if __name__ == "__main__":
     print("="*65)
     for r in results:
         print(f"{r['Feature']:<10} | {r['Split']:<10} | {r['ACO']:<5} | {r['Accuracy']:.4%}")
-    print("="*65) 
+    print("="*65)
