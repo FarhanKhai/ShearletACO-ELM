@@ -3,9 +3,6 @@ import os
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
-# ==========================================
-# 1. DATA LOADING ENGINE
-# ==========================================
 def load_data_fixed(feature_type):
     f_train = f"{feature_type}_train.npz"
     f_val   = f"{feature_type}_val.npz"
@@ -75,10 +72,6 @@ def elm_predict(model, X):
 
 
 def aco_select(X_tr, y_tr, X_v, y_v, max_feat, n_ants, n_iter):
-    """
-    Versi Smart ACO (Sigmoid + Smart Pruning)
-    Sesuai dengan hasil Grid Search terbaik (Val 0.5909).
-    """
     n_feat = X_tr.shape[1]
     
     tau = np.ones(n_feat)
